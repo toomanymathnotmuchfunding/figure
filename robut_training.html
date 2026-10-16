@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Interactive Robust Training: Inducible Biases</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --panel: #ffffff;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #1f6feb;
+    --danger: #cc0000;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px;
+    font-family: "Computer Modern Serif", "Latin Modern Roman", "Times New Roman", Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .container {
+    max-width: 1060px;
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    padding: 20px 24px;
+    display: grid;
+    grid-template-columns: 1fr 310px;
+    gap: 22px;
+  }
+  @media (max-width: 860px) {
+    .container { grid-template-columns: 1fr; }
+  }
+  .canvas-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  canvas {
+    width: 100%;
+    max-width: 680px;
+    height: auto;
+    background: #ffffff;
+    border: 1px solid #eaeef2;
+    border-radius: 6px;
+  }
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13.5px;
+    border-left: 1px solid #eaeef2;
+    padding-left: 20px;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .control-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .val-badge {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    background: #eef2f7;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 12.5px;
+  }
+  input[type="range"] {
+    width: 100%;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 12.5px;
+  }
+  .btn-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  button {
+    flex: 1;
+    padding: 6px 9px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: #f3f4f6;
+    color: var(--text);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #e5e7eb; }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stats-box {
+    background: #f6f8fa;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .stats-box .backfire {
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .stats-box .safe {
+    color: #1a7f37;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="canvas-wrap">
+    <canvas id="plotCanvas" width="700" height="560"></canvas>
+  </div>
+
+  <div class="controls">
+    <div style="font-size:15px; font-weight:700; border-bottom:1px solid #eaeef2; padding-bottom:8px;">
+      Training Policy &amp; Model Parameters
+    </div>
+
+    <!-- Slider: gamma(theta_1) -->
+    <div class="control-group">
+      <div class="control-header">
+        <span>Trained Action &gamma;(&theta;<sub>1</sub>)</span>
+        <span class="val-badge" id="gammaVal">0.00</span>
+      </div>
+      <input type="range" id="gammaSlider" min="-1.80" max="3.40" step="0.01" value="0.00">
+      <div class="btn-row">
+        <button id="btnGreedy" title="Set gamma = 0">Greedy: Optimal for B(0, b<sub>0</sub>) </button>
+        <button id="btnOpt62" title="Set gamma to Theorem 3 optimum">Optimal Training Under B(b<sub>0</sub>)</button>
+        <button id="btnNoTrain" title="Set gamma = b0(theta_1)">No Training</button>
+      </div>
+    </div>
+
+    <!-- Slider: Corrigibility eta -->
+    <div class="control-group">
+      <div class="control-header">
+        <span>Corrigibility &eta; = &lambda;/(1&minus;&lambda;)</span>
+        <span class="val-badge" id="etaVal">1.44</span>
+      </div>
+      <input type="range" id="etaSlider" min="0.10" max="4.50" step="0.02" value="1.44">
+    </div>
+
+    <!-- Initial Bias b_0 -->
+    <div class="control-group">
+      <div class="control-header">
+        <span>Initial Bias b<sub>0</sub> = (b<sub>0</sub>(&theta;<sub>1</sub>), b<sub>0</sub>(&theta;<sub>2</sub>))</span>
+      </div>
+      <input type="text" id="b0Input" value="3.0, 2.2">
+      <div class="btn-row">
+        <button id="btnB0_61">b<sub>0</sub> = (3, 2.2)</button>
+        <button id="btnB0_62">b<sub>0</sub> = (3, 0) [Fig 2]</button>
+      </div>
+    </div>
+
+    <!-- Known points in B -->
+    <div class="control-group">
+      <label class="checkbox-row">
+        <input type="checkbox" id="chkZero" checked>
+        <span><strong>Full alignment is possible</strong></span>
+      </label>
+      <div style="font-size:12px; color:var(--muted); margin-top:4px;">
+        Additional points known to be in B; (e.g. <code>-1, 0.8; 1.5, 0.5</code>):
+      </div>
+      <input type="text" id="extraBInput" placeholder="e.g. -1.0, 0.8; 1.2, 0.4" value="">
+    </div>
+
+    <!-- Display Toggles -->
+    <div class="control-group">
+      <label class="checkbox-row">
+        <input type="checkbox" id="chkRuledOut" checked>
+        <span>Show (ruled-out) worst-case point</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="chkConstruct" checked>
+        <span>Show B &amp; projection lines</span>
+      </label>
+    </div>
+
+    <!-- Live Readout -->
+    <div class="stats-box" id="statsBox"></div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('plotCanvas');
+const ctx = canvas.getContext('2d');
+
+// High-DPI Retina scaling
+const DPR = window.devicePixelRatio || 1;
+const W = 700, H = 560;
+canvas.width = W * DPR;
+canvas.height = H * DPR;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+ctx.scale(DPR, DPR);
+
+// UI Elements
+const gammaSlider = document.getElementById('gammaSlider');
+const etaSlider = document.getElementById('etaSlider');
+const gammaVal = document.getElementById('gammaVal');
+const etaVal = document.getElementById('etaVal');
+const b0Input = document.getElementById('b0Input');
+const chkZero = document.getElementById('chkZero');
+const extraBInput = document.getElementById('extraBInput');
+const chkRuledOut = document.getElementById('chkRuledOut');
+const chkConstruct = document.getElementById('chkConstruct');
+const statsBox = document.getElementById('statsBox');
+
+function parseB0() {
+  const parts = b0Input.value.split(',').map(s => parseFloat(s.trim()));
+  if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+    return [parts[0], parts[1]];
+  }
+  return [3.0, 2.2];
+}
+
+function parseExtraB() {
+  const raw = extraBInput.value.trim();
+  if (!raw) return [];
+  const pts = [];
+  for (const chunk of raw.split(';')) {
+    const parts = chunk.split(',').map(s => parseFloat(s.trim()));
+    if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      pts.push([parts[0], parts[1]]);
+    }
+  }
+  return pts;
+}
+
+function drawArrow(x1, y1, x2, y2, color = '#000', lw = 1.3) {
+  const headlen = 8;
+  const dx = x2 - x1, dy = y2 - y1;
+  const angle = Math.atan2(dy, dx);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 7), y2 - headlen * Math.sin(angle - Math.PI / 7));
+  ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 7), y2 - headlen * Math.sin(angle + Math.PI / 7));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  const b0 = parseB0();
+  const gamma = parseFloat(gammaSlider.value);
+  const eta = parseFloat(etaSlider.value);
+  const zeroInB = chkZero.checked;
+  const extraPts = parseExtraB();
+
+  gammaVal.textContent = gamma.toFixed(2);
+  etaVal.textContent = eta.toFixed(2);
+
+  const b_unc = [gamma, b0[1]];
+  const S = [b0];
+  if (zeroInB) S.push([0.0, 0.0]);
+  for (const p of extraPts) S.push(p);
+
+  // Lambda inner product weight (f1 = f2 = 0.5 => w_x = eta)
+  const w_x = eta;
+  const lambda_ip = (u, v) => w_x * u[0] * v[0] + u[1] * v[1];
+
+  // Polar intersection around b_unc
+  const N = 1800;
+  const boundary = [];
+  const r_int_arr = [];
+  let maxAbsY = -1;
+  let b1_star = [b_unc[0], b_unc[1]];
+  let bindingIdx = 0;
+
+  for (let i = 0; i <= N; i++) {
+    const phi = (2 * Math.PI * i) / N;
+    const d = [Math.cos(phi), Math.sin(phi)];
+    const d_norm_sq = lambda_ip(d, d);
+
+    let r_min = Infinity;
+    let b_idx = 0;
+    for (let j = 0; j < S.length; j++) {
+      const diff = [S[j][0] - b_unc[0], S[j][1] - b_unc[1]];
+      const r_v = Math.max(0.0, lambda_ip(d, diff) / d_norm_sq);
+      if (r_v < r_min) {
+        r_min = r_v;
+        b_idx = j;
+      }
+    }
+    const pt = [b_unc[0] + r_min * d[0], b_unc[1] + r_min * d[1]];
+    boundary.push(pt);
+    r_int_arr.push(r_min);
+
+    const score = Math.abs(pt[1]) + 1e-6 * pt[1];
+    if (score > maxAbsY) {
+      maxAbsY = score;
+      b1_star = pt;
+      bindingIdx = b_idx;
+    }
+  }
+
+  // Coordinate transform (fixed clean viewport so dragging slider is rock-steady)
+  const xMin = -2.2, xMax = 4.9;
+  const yMin = Math.min(-0.7, b0[1] - 2.3), yMax = Math.max(4.9, b0[1] + 2.7);
+
+  const padL = 45, padR = 35, padT = 35, padB = 45;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const scale = Math.min(plotW / (xMax - xMin), plotH / (yMax - yMin));
+
+  const toX = x => padL + (x - xMin) * scale;
+  const toY = y => H - padB - (y - yMin) * scale;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const isBackfire = Math.abs(b1_star[1]) > Math.abs(b0[1]) + 1e-3;
+  const fillCol = isBackfire ? '#f6d5d5' : '#dce6f4';
+
+  // 1. Shaded inducible intersection E(b_0) \cap E(0) \cap ...
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i < boundary.length; i++) {
+    const px = toX(boundary[i][0]), py = toY(boundary[i][1]);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fillCol;
+  ctx.fill();
+  ctx.restore();
+
+  // 2. Constituent Ellipses E(v)
+  const dashPatterns = [[6, 5], [2, 3], [8, 3, 2, 3], [4, 4]];
+  const ellColors = ['#888888', '#777777', '#2ca02c', '#9467bd'];
+
+  for (let j = 0; j < S.length; j++) {
+    const v = S[j];
+    const center = [0.5 * (b_unc[0] + v[0]), 0.5 * (b_unc[1] + v[1])];
+    const diff = [v[0] - b_unc[0], v[1] - b_unc[1]];
+    const dist_lam = Math.sqrt(lambda_ip(diff, diff));
+    const rx = (0.5 * dist_lam) / Math.sqrt(w_x);
+    const ry = 0.5 * dist_lam;
+
+    if (dist_lam > 1e-5) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(toX(center[0]), toY(center[1]), rx * scale, ry * scale, 0, 0, 2 * Math.PI);
+      ctx.strokeStyle = S.length === 1 ? '#000000' : ellColors[j % ellColors.length];
+      ctx.lineWidth = S.length === 1 ? 1.6 : 1.3;
+      if (S.length > 1) ctx.setLineDash(dashPatterns[j % dashPatterns.length]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // 3. Solid black boundary around the active intersection
+  if (S.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < boundary.length; i++) {
+      if (r_int_arr[i] > 1e-4) {
+        const px = toX(boundary[i][0]), py = toY(boundary[i][1]);
+        if (!started) { ctx.moveTo(px, py); started = true; }
+        else ctx.lineTo(px, py);
+      } else {
+        started = false;
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 4. Reference line at y = b_0(theta_2) and drop-line at b_0(theta_1)
+  ctx.save();
+  ctx.strokeStyle = '#999999';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(toX(Math.min(-1.8, gamma - 0.3)), toY(b0[1]));
+  ctx.lineTo(toX(b0[0] + 0.5), toY(b0[1]));
+  ctx.stroke();
+
+  if (Math.abs(b0[1]) > 1e-4) {
+    ctx.strokeStyle = '#bbbbbb';
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(toX(b0[0]), toY(0));
+    ctx.lineTo(toX(b0[0]), toY(b0[1]));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 5. Coordinate Axes (x = 0 and y = 0)
+  drawArrow(toX(xMin + 0.2), toY(0), toX(xMax - 0.15), toY(0), '#000000', 1.3);
+  drawArrow(toX(0), toY(yMin + 0.2), toX(0), toY(yMax - 0.15), '#000000', 1.3);
+
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.font = '16px "Computer Modern Serif", "Times New Roman", serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('untrained state \u03B8\u2082 \u2209 \u03A9', toX(0) + 10, toY(yMax - 0.25));
+  ctx.textAlign = 'right';
+  ctx.fillText('trained state \u03B8\u2081 \u2208 \u03A9', toX(xMax - 0.15), toY(0) + 28);
+  ctx.restore();
+
+  // Tick at b_0(theta_1) on x-axis
+  ctx.save();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(toX(b0[0]), toY(0) - 4);
+  ctx.lineTo(toX(b0[0]), toY(0) + 4);
+  ctx.stroke();
+  ctx.font = 'italic 15px "Computer Modern Serif", "Times New Roman", serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('b\u2080(\u03B8\u2081)', toX(b0[0]), toY(0) + 20);
+  ctx.restore();
+
+  // 6. Construction lines: tilted [0, b_unc] diameter or B^* and dashed projection
+  if (zeroInB && Math.abs(gamma) > 1e-3) {
+    ctx.save();
+    ctx.strokeStyle = '#a61c1c';
+    ctx.lineWidth = 1.1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(0));
+    ctx.lineTo(toX(b_unc[0]), toY(b_unc[1]));
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const distStarUnc = Math.hypot(b1_star[0] - b_unc[0], b1_star[1] - b_unc[1]);
+  if (chkConstruct.checked && distStarUnc > 1e-3) {
+    // Dashed projection line from b_unc to b_1^*
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1.1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(toX(b_unc[0]), toY(b_unc[1]));
+    ctx.lineTo(toX(b1_star[0]), toY(b1_star[1]));
+    ctx.stroke();
+    ctx.restore();
+
+    // Thick solid line for B^* from binding point v_bind to b_1^*
+    const v_bind = S[bindingIdx];
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(toX(v_bind[0]), toY(v_bind[1]));
+    ctx.lineTo(toX(b1_star[0]), toY(b1_star[1]));
+    ctx.stroke();
+
+    const midX = toX(0.5 * (v_bind[0] + b1_star[0]));
+    const midY = toY(0.5 * (v_bind[1] + b1_star[1]));
+    ctx.font = 'italic 16px "Computer Modern Serif", "Times New Roman", serif';
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'right';
+    ctx.fillText('\uD835\uDC9D*', midX - 8, midY + 6);
+    ctx.restore();
+  }
+
+  // 7. Ruled-out 6.2 worst-case point at top of E(b_0)
+  if (chkRuledOut.checked && zeroInB) {
+    const c_b0 = [0.5 * (b_unc[0] + b0[0]), 0.5 * (b_unc[1] + b0[1])];
+    const diff0 = [b0[0] - b_unc[0], b0[1] - b_unc[1]];
+    const ry_b0 = 0.5 * Math.sqrt(lambda_ip(diff0, diff0));
+    const pt62 = [c_b0[0], c_b0[1] + ry_b0];
+
+    ctx.save();
+    ctx.fillStyle = '#888888';
+    ctx.beginPath();
+    ctx.arc(toX(pt62[0]), toY(pt62[1]), 4.5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.font = '14.5px "Computer Modern Serif", "Times New Roman", serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('b\u2081* under B(b_0)', toX(pt62[0]) + 9, toY(pt62[1]) + 4);
+    ctx.restore();
+  }
+
+  // 8. Key points: b_0, 0, extra points, b_unc, and b_1^*
+  for (let j = 0; j < S.length; j++) {
+    const v = S[j];
+    ctx.save();
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.arc(toX(v[0]), toY(v[1]), 5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.font = 'italic 16px "Computer Modern Serif", "Times New Roman", serif';
+    if (j === 0) {
+      ctx.textAlign = 'left';
+      ctx.fillText('b\u2080', toX(v[0]) + 8, toY(v[1]) - 7);
+    } else if (Math.hypot(v[0], v[1]) < 1e-4) {
+      ctx.font = '16px "Computer Modern Serif", "Times New Roman", serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('0', toX(0) - 8, toY(0) + 17);
+    } else {
+      ctx.textAlign = 'left';
+      ctx.fillText('v' + j, toX(v[0]) + 7, toY(v[1]) - 6);
+    }
+    ctx.restore();
+  }
+
+  // Square marker for b_unc
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  const sq = 5.5;
+  ctx.fillRect(toX(b_unc[0]) - sq, toY(b_unc[1]) - sq, 2 * sq, 2 * sq);
+  ctx.font = '15.5px "Computer Modern Serif", "Times New Roman", serif';
+
+  if (distStarUnc < 1e-2) {
+    ctx.textAlign = 'right';
+    ctx.fillText('b\u2081* = b_unc', toX(b_unc[0]) - 10, toY(b_unc[1]) - 18);
+    ctx.fillText('(worst case)', toX(b_unc[0]) - 10, toY(b_unc[1]) - 2);
+  } else {
+    ctx.textAlign = gamma <= b0[0] ? 'right' : 'left';
+    const dx = gamma <= b0[0] ? -10 : 10;
+    ctx.fillText('b_unc', toX(b_unc[0]) + dx, toY(b_unc[1]) + 16);
+
+    // Worst-case b_1^* marker
+    const dotCol = isBackfire ? '#cc0000' : '#000000';
+    ctx.fillStyle = dotCol;
+    ctx.beginPath();
+    ctx.arc(toX(b1_star[0]), toY(b1_star[1]), 5.2, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    const labelY = toY(b1_star[1]) - 12;
+    if (isBackfire && zeroInB) {
+      ctx.fillText('b\u2081* (backfire: b\u2081(\u03B8\u2082) > b\u2080(\u03B8\u2082))', toX(b1_star[0]), labelY);
+    } else {
+      ctx.fillText('b\u2081* (worst case)', toX(b1_star[0]), labelY);
+    }
+  }
+  ctx.restore();
+
+  // 9. Legend in top-right corner
+  const legX = W - 185, legY = 22, legW = 165, legH = 26 + S.length * 22;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.strokeStyle = '#cccccc';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(legX, legY, legW, legH, 5);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = '14px "Computer Modern Serif", "Times New Roman", serif';
+  ctx.textAlign = 'left';
+  for (let j = 0; j < S.length; j++) {
+    const ry = legY + 16 + j * 22;
+    ctx.save();
+    ctx.strokeStyle = S.length === 1 ? '#000' : ellColors[j % ellColors.length];
+    ctx.lineWidth = 1.4;
+    if (S.length > 1) ctx.setLineDash(dashPatterns[j % dashPatterns.length]);
+    ctx.beginPath();
+    ctx.moveTo(legX + 12, ry);
+    ctx.lineTo(legX + 42, ry);
+    ctx.stroke();
+    ctx.restore();
+    const name = j === 0 ? 'E(b\u2080)' : (Math.hypot(S[j][0], S[j][1]) < 1e-4 ? 'E(0)' : 'E(v' + j + ')');
+    ctx.fillStyle = '#000';
+    ctx.fillText(name, legX + 50, ry + 4);
+  }
+  const ryBox = legY + 10 + S.length * 22;
+  ctx.fillStyle = fillCol;
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(legX + 12, ryBox, 30, 12);
+  ctx.strokeRect(legX + 12, ryBox, 30, 12);
+  ctx.fillStyle = '#000';
+  ctx.fillText('Inducible biases', legX + 50, ryBox + 10);
+  ctx.restore();
+
+  // 10. Update live stats readout
+  const lossP = 0.5 * gamma * gamma + 0.5 * b1_star[1] * b1_star[1];
+  const lossNoTrain = 0.5 * b0[0] * b0[0] + 0.5 * b0[1] * b0[1];
+  const statusHtml = isBackfire
+    ? `<span class="backfire">Backfire on &Theta;\\&Omega; (|b<sub>1</sub><sup>*</sup>(&theta;<sub>2</sub>)| &gt; |b<sub>0</sub>(&theta;<sub>2</sub>)|)</span>`
+    : `<span class="safe">No backfire on &Theta;\\&Omega;</span>`;
+
+  statsBox.innerHTML = `
+    <div><strong>Unconstrained target:</strong> b<sub>unc</sub> = (${b_unc[0].toFixed(2)}, ${b_unc[1].toFixed(2)})</div>
+    <div><strong>Worst-case bias:</strong> b<sub>1</sub><sup>*</sup> = (${b1_star[0].toFixed(2)}, ${b1_star[1].toFixed(2)})</div>
+    <div><strong>Principal loss &#x1D4DB;<sub>P</sub>:</strong> ${lossP.toFixed(3)} <span style="color:#666">(status quo: ${lossNoTrain.toFixed(2)})</span></div>
+    <div style="margin-top:4px;">${statusHtml}</div>
+  `;
+}
+
+// Event Listeners
+gammaSlider.addEventListener('input', render);
+etaSlider.addEventListener('input', render);
+b0Input.addEventListener('input', render);
+chkZero.addEventListener('change', render);
+extraBInput.addEventListener('input', render);
+chkRuledOut.addEventListener('change', render);
+chkConstruct.addEventListener('change', render);
+
+document.getElementById('btnGreedy').addEventListener('click', () => {
+  gammaSlider.value = 0.0;
+  render();
+});
+
+document.getElementById('btnOpt62').addEventListener('click', () => {
+  const b0 = parseB0();
+  const eta = parseFloat(etaSlider.value);
+  const ratio = Math.abs(b0[1]) / Math.max(1e-6, Math.abs(b0[0]));
+  const alphaStar = Math.max(0.0, (2.0 - Math.sqrt(eta) * ratio) / (2.0 + 0.5 * eta));
+  gammaSlider.value = ((1.0 - alphaStar) * b0[0]).toFixed(2);
+  render();
+});
+
+document.getElementById('btnNoTrain').addEventListener('click', () => {
+  const b0 = parseB0();
+  gammaSlider.value = b0[0];
+  render();
+});
+
+document.getElementById('btnB0_61').addEventListener('click', () => {
+  b0Input.value = '3.0, 2.2';
+  chkZero.checked = true;
+  render();
+});
+
+document.getElementById('btnB0_62').addEventListener('click', () => {
+  b0Input.value = '3.0, 0.0';
+  chkZero.checked = false;
+  gammaSlider.value = 1.2;
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
