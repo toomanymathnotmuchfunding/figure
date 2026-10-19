@@ -25,16 +25,16 @@
     align-items: center;
   }
   .container {
-    max-width: 1060px;
+    max-width: 1360px;
     width: 100%;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-    padding: 20px 24px;
+    padding: 26px 30px;
     display: grid;
-    grid-template-columns: 1fr 310px;
-    gap: 22px;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 28px;
   }
   @media (max-width: 860px) {
     .container { grid-template-columns: 1fr; }
@@ -47,8 +47,9 @@
     position: relative;
   }
   canvas {
+    display: block;
     width: 100%;
-    max-width: 680px;
+    max-width: 840px;
     height: auto;
     background: #ffffff;
     border: 1px solid #eaeef2;
@@ -233,11 +234,11 @@ const ctx = canvas.getContext('2d');
 
 // Retina scaling
 const DPR = window.devicePixelRatio || 1;
-const W = 700, H = 560;
+const W = 840, H = 672;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
-canvas.style.width = W + 'px';
-canvas.style.height = H + 'px';
+canvas.style.width = '100%';
+canvas.style.height = 'auto';
 ctx.scale(DPR, DPR);
 
 // UI Elements
